@@ -505,4 +505,26 @@ async function runDl(mode){
  const d=$('#dxd');d.textContent=mode==='share'?'Bagikan sekarang':'Unduh lagi';d.style.display='';
  cells.forEach((c,k)=>{if(c.classList.contains('ok'))c.style.animation='dwave .6s ease '+(k*55)+'ms'});
  confetti();if(navigator.vibrate)navigator.vibrate([20,40,30])}
+
+/* ================= harga otomatis bertitik & unduhan selalu UHD ================= */
+(()=>{
+ const fmt=v=>{
+  const m=v.match(/^\s*(rp\.?\s*)?([\d.,\s]*)$/i);if(!m)return v;
+  const d=m[2].replace(/\D/g,'').replace(/^0+(?=\d)/,'');
+  return (m[1]?'Rp':'')+d.replace(/\B(?=(\d{3})+(?!\d))/g,'.')};
+ const pr=$('#pr');pr.inputMode='numeric';pr.placeholder='35.000';
+ document.addEventListener('input',e=>{
+  if(e.target!==pr)return;
+  const v=pr.value,pos=pr.selectionStart==null?v.length:pr.selectionStart,after=v.slice(pos).replace(/\D/g,'').length,out=fmt(v);
+  if(out===v)return;
+  pr.value=out;
+  let n=0,i=out.length;for(;i>0&&n<after;i--)if(/\d/.test(out[i-1]))n++;
+  try{pr.setSelectionRange(i,i)}catch(x){}},true);
+ if(pr.value)pr.value=fmt(pr.value);
+ /* UHD: 3240 x 4320 per kotak, tidak bisa diturunkan */
+ $('#sc').value='3';
+ const sg=$('#sg-sc');sg.style.display='none';
+ sg.previousElementSibling.firstElementChild.textContent='Resolusi: UHD 3240 × 4320 per kotak';
+ document.addEventListener('click',()=>{$('#sc').value='3'},true);
+})();
 })();
