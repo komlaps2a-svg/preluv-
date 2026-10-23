@@ -77,13 +77,28 @@ function autoSeeds(E){
   const edge=x<bw||x>=w-bw||y<bw,bot=y>=h-bw;if(!edge&&!bot)continue;
   const i=y*w+x;if(near(i)<(bot?30:60)){s[i]=2;any++}}
  if(!any)for(let x=0;x<w;x++)for(let y=0;y<bw;y++)s[y*w+x]=2;
- const cx=w/2,cy=h*.52,rx=w*.1,ry=h*.16;let fg=0;
- for(let y=Math.max(0,Math.floor(cy-ry));y<=Math.min(h-1,Math.ceil(cy+ry));y++)
-  for(let x=Math.max(0,Math.floor(cx-rx));x<=Math.min(w-1,Math.ceil(cx+rx));x++){
-   if(((x-cx)/rx)**2+((y-cy)/ry)**2<=1){const i=y*w+x;if(near(i)>28){s[i]=1;fg++}}}
- if(!fg)for(let y=Math.max(0,Math.floor(cy-ry));y<=Math.min(h-1,Math.ceil(cy+ry));y++)
-  for(let x=Math.max(0,Math.floor(cx-rx));x<=Math.min(w-1,Math.ceil(cx+rx));x++)
-   if(((x-cx)/rx)**2+((y-cy)/ry)**2<=1)s[y*w+x]=1;
+ /* objek = gumpalan terbesar yang warnanya beda dari latar */
+ const N=w*h,cand=new Uint8Array(N),dm=new Float32Array(N);
+ for(let i=0;i<N;i++){dm[i]=near(i);if(dm[i]>45&&s[i]!==2)cand[i]=1}
+ const lab=new Uint8Array(N),st=new Int32Array(N);let bestA=0,best=null;
+ for(let i0=0;i0<N;i0++){if(!cand[i0]||lab[i0])continue;
+  const mem=[];let sp=0;st[sp++]=i0;lab[i0]=1;
+  while(sp){const i=st[--sp];mem.push(i);const x=i%w,y=(i/w)|0;
+   if(x>0&&cand[i-1]&&!lab[i-1]){lab[i-1]=1;st[sp++]=i-1}
+   if(x<w-1&&cand[i+1]&&!lab[i+1]){lab[i+1]=1;st[sp++]=i+1}
+   if(y>0&&cand[i-w]&&!lab[i-w]){lab[i-w]=1;st[sp++]=i-w}
+   if(y<h-1&&cand[i+w]&&!lab[i+w]){lab[i+w]=1;st[sp++]=i+w}}
+  if(mem.length>bestA){bestA=mem.length;best=mem}}
+ let fg=0;
+ if(best&&bestA>N*.015){const inb=new Uint8Array(N);for(const i of best)inb[i]=1;
+  for(const i of best){const x=i%w,y=(i/w)|0;
+   if(x>1&&x<w-2&&y>1&&y<h-2&&inb[i-1]&&inb[i+1]&&inb[i-w]&&inb[i+w]&&inb[i-2]&&inb[i+2]&&inb[i-2*w]&&inb[i+2*w]&&dm[i]>55){s[i]=1;fg++}}}
+ if(!fg){const cx=w/2,cy=h*.52,rx=w*.1,ry=h*.16;let tot=0,far=0;const pts=[];
+  for(let y=Math.max(0,Math.floor(cy-ry));y<=Math.min(h-1,Math.ceil(cy+ry));y++)
+   for(let x=Math.max(0,Math.floor(cx-rx));x<=Math.min(w-1,Math.ceil(cx+rx));x++)
+    if(((x-cx)/rx)**2+((y-cy)/ry)**2<=1){const i=y*w+x;tot++;if(dm[i]>28){far++;pts.push(i)}}
+  if(far>tot*.4)for(const i of pts){s[i]=1;fg++}}
+ E.noFg=!fg;
  return s}
 
 /* gambar coretan hijau/merah ke peta seed */
@@ -196,7 +211,9 @@ function makeEng(t){
 function getEng(t){let E=ENG.get(t.orig);if(!E){E=makeEng(t);ENG.set(t.orig,E)}return E}
 function seedsOf(E){
  let s;
- if(E.ai)s=Uint8Array.from(E.ai);else{if(!E.auto)E.auto=autoSeeds(E);s=Uint8Array.from(E.auto)}
+ if(E.ai)s=Uint8Array.from(E.ai);
+ else{if(!E.auto)E.auto=autoSeeds(E);s=Uint8Array.from(E.auto);
+  if(E.strokes.some(k=>k.t==='fg'))for(let i=0;i<s.length;i++)if(s[i]===1)s[i]=0}
  for(const k of E.strokes)if(k.t==='fg'||k.t==='bg')stampStroke(s,E,k);
  return s}
 function segCanvas(E,a){
@@ -220,8 +237,13 @@ function cutout(E){
 const copyStrokes=E=>E.strokes.map(k=>({t:k.t,r:k.r,p:k.p.slice()}));
 
 function autoCore(t){
- const E=getEng(t);E.strokes=[];E.ai=null;rebuild(E);
- t.sk=[];t.ai=null;setCut(cutout(E))}
+ const E=getEng(t);E.strokes=[];E.ai=null;E.auto=null;rebuild(E);
+ t.sk=[];t.ai=null;t.nobg=false;setCut(cutout(E));return !E.noFg}
+function useFull(t){
+ const o=t.orig,r=Math.min(o.width,o.height)*.05,c=mk(o.width,o.height),g=c.getContext('2d');
+ g.beginPath();g.roundRect(0,0,o.width,o.height,r);g.clip();g.drawImage(o,0,0);
+ t.sk=[];t.ai=null;t.nobg=true;setCut(c)}
+const autoOn=()=>{try{return localStorage.getItem('bb_autobg')!=='0'}catch(e){return true}};
 
 async function autoCut(){
  const t=cur();if(!t.orig)return toast('Upload foto dulu');
@@ -252,7 +274,10 @@ async function aiCut(inEditor){
 async function loadPhoto(f){
  const t=cur();await busy('Memproses foto…');
  try{t.orig=await toCv(f,2200);t.ob=await blobOf(t.orig,'image/jpeg',.92);t.x=t.y=0;t.s=100;t.sk=[];t.ai=null;sync();
-  await busy('Menghapus background…');autoCore(t);toast('Foto masuk ke kotak '+(S.sel+1)+'. Kurang pas? Ketuk "Arahkan area yang dihapus".')}
+  let ok=true;
+  if(autoOn()){await busy('Menghapus background…');ok=autoCore(t)}else useFull(t);
+  toast(autoOn()?(ok?'Foto masuk ke kotak '+(S.sel+1)+'. Kurang pas? Ketuk "Arahkan area yang dihapus".':'Objek belum ketemu. Coret hijau di objek, merah di background.'):'Foto dipakai utuh (tanpa hapus BG)');
+  await busy('');if(!ok){openCut();return}}
  catch(x){toast('Foto tidak bisa dibuka')}
  await busy('')}
 
@@ -383,6 +408,13 @@ addEventListener('keydown',e=>{if($('#cm').classList.contains('on')&&e.key==='Es
  const b=document.createElement('button');b.className='btn';b.id='bm';
  b.innerHTML='<svg class="i"><use href="#i-mv"/></svg>Arahkan area yang dihapus';
  bq.parentElement.after(b);b.addEventListener('click',openCut);
+ const n=document.createElement('button');n.className='btn ghost';n.id='bn';
+ n.innerHTML='<svg class="i"><use href="#i-ok"/></svg>Pakai foto utuh (tanpa hapus BG)';
+ b.after(n);n.addEventListener('click',()=>{const t=cur();if(!t.orig)return toast('Upload foto dulu');useFull(t);toast('Foto dipakai utuh')});
+ const ln=document.createElement('div');ln.className='line';ln.style.marginTop='14px';
+ ln.innerHTML='<span>Hapus BG otomatis saat upload</span><button class="sw" id="bsw" aria-label="Hapus BG otomatis"></button>';
+ n.after(ln);const sw=$('#bsw');sw.classList.toggle('on',autoOn());
+ sw.onclick=()=>{const v=!autoOn();try{localStorage.setItem('bb_autobg',v?'1':'0')}catch(e){}sw.classList.toggle('on',v)};
  const tol=$('#tol');tol.previousElementSibling.style.display='none';tol.style.display='none';
  tol.nextElementSibling.textContent='Background dihapus otomatis saat upload. Kalau masih salah, ketuk "Arahkan area yang dihapus" lalu coret hijau di baju dan merah di background.'})();
 
